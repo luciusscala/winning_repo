@@ -1,4 +1,5 @@
 from resize import format_images
+from resize import format_single_image
 
 import tensorflow as tf
 from tensorflow.keras import layers, models # type: ignore
@@ -54,6 +55,38 @@ class Model(tf.keras.Model):
 
         self.load_weights(weight_path)
 
+    def preprocess(self, img):
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        tensor = tf.convert_to_tensor(format_single_image(img), dtype=tf.float32) / 255.0
+        tensor = tf.expand_dims(tensor, axis=0)
+
+        return tensor
+
+    def predict(self, input_dicts):
+        preds = {'SPEI_30d': [], 'SPEI_1y': [], 'SPEI_2y': []}
+        for inp_dict in input_dicts:
+            tensor = self.preprocess(inp_dict['relative_img'])
+            curr_preds = self(tensor, training=False)
+            preds['SPEI_30d'].append(curr_preds[0])
+            preds['SPEI_1y'].append(curr_preds[1])
+            preds['SPEI_2y'].append(curr_preds[2])
+
+        return {
+            'SPEI_30d': {
+                'mu': np.mean(np.array(preds['SPEI_30d'])), 
+                'sigma': np.std(np.array(preds['SPEI_30d']))
+            },
+            'SPEI_1y': {
+                'mu': np.mean(np.array(preds['SPEI_1y'])),
+                'sigma': np.std(np.array(preds['SPEI_1y'])) 
+            },
+            'SPEI_2y': {
+                'mu': np.mean(np.array(preds['SPEI_2y'])),
+                'sigma': np.std(np.array(preds['SPEI_2y']))
+            }
+        }
+
     def call(self, x, training=False):
         # Call block 1
         x = self.conv1_1(x)
@@ -83,7 +116,7 @@ class Model(tf.keras.Model):
 
 # Formatting for training dataset
 def ds_to_fit_format(row):
-    x = tf.cast(row['tensors'], tf.float64) / 255.0
+    x = tf.cast(row['tensors'], tf.float32) / 255.0
     x = tf.reshape(x, (256, 256, 3))
     y = tf.stack([row['SPEI_30d'], row['SPEI_1y'], row['SPEI_2y']])
 
@@ -93,9 +126,9 @@ def ds_to_fit_format(row):
 def process_example(example):
     img = example['tensors']
     img_array = np.array(img, dtype=np.float64) / 255.0
-    x = tf.convert_to_tensor(img_array, dtype=tf.float64)
+    x = tf.convert_to_tensor(img_array, dtype=tf.float32)
     y = tf.stack([example['SPEI_30d'], example['SPEI_1y'], example['SPEI_2y']])
-    return x, tf.cast(y, tf.float64)
+    return x, tf.cast(y, tf.float32)
 
 # Training
 def train(args, model):
@@ -108,8 +141,8 @@ def train(args, model):
             yield process_example(example)
 
     output_signature = (
-        tf.TensorSpec(shape=(256, 256, 3), dtype=tf.float64),  # height, width, channels
-        tf.TensorSpec(shape=(3,), dtype=tf.float64)
+        tf.TensorSpec(shape=(256, 256, 3), dtype=tf.float32),  # height, width, channels
+        tf.TensorSpec(shape=(3,), dtype=tf.float32)
     )
 
     tf_ds = tf.data.Dataset.from_generator(generator, output_signature=output_signature)

@@ -28,7 +28,7 @@ def resize(row):
     padded.paste(resized, (x_offset, y_offset))
 
     #convert padded + resized image to numpy array
-    img_array = np.array(padded, dtype=np.float64)
+    img_array = np.array(padded, dtype=np.float32)
     # print(img_array.shape)
 
     return {'tensors': img_array}
@@ -40,7 +40,28 @@ def format_images():
 
     return ds
 
+def format_single_image(img):
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+        
+    width, height = img.size
 
+    new_h = 256
+    new_w = int(width * (new_h / height))  
+    resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
+    final_size = 256
+    padded = Image.new(
+        mode=resized.mode,
+        size=(final_size, final_size),
+        color=(255, 255, 255) if resized.mode == 'RGB' else 255
+    )
 
+    x_offset = (final_size - resized.width) // 2
+    y_offset = 0 
+    padded.paste(resized, (x_offset, y_offset))
 
+    #convert padded + resized image to numpy array
+    img_array = np.array(padded, dtype=np.float32)
+
+    return img_array
