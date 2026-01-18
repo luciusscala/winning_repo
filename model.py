@@ -1,3 +1,5 @@
+from resize import format_images
+
 import tensorflow as tf
 from tensorflow.keras import layers, models # type: ignore
 
@@ -44,7 +46,14 @@ class Model(tf.keras.Model):
         # Output
         self.output_layer = layers.Dense(3, activation="tanh")
         self.output_scale = output_scale
-    
+
+    # Load from weight file
+    def load(self, weight_path="./weights.h5", image_dim=256, output_scale=3.0):
+        dummy_input = tf.zeros((1, image_dim, image_dim, 3))
+        _ = self(dummy_input, training=False)
+
+        self.load_weights(weight_path)
+
     def call(self, x, training=False):
         # Call block 1
         x = self.conv1_1(x)
@@ -74,19 +83,37 @@ class Model(tf.keras.Model):
 
 # Formatting for training dataset
 def ds_to_fit_format(row):
-    x = np.array(row['tensors'], dtype=np.float32) / 255.0
-    y = np.array([row['SPEI_30d'], row['SPEI_1y'], row['SPEI_2y']], dtype=np.float32)
+    x = tf.cast(row['tensors'], tf.float64) / 255.0
+    x = tf.reshape(x, (256, 256, 3))
+    y = tf.stack([row['SPEI_30d'], row['SPEI_1y'], row['SPEI_2y']])
 
-    return {'x': x, 'y': y}
+    return x, y
+
+# Process examples
+def process_example(example):
+    img = example['tensors']
+    img_array = np.array(img, dtype=np.float64) / 255.0
+    x = tf.convert_to_tensor(img_array, dtype=tf.float64)
+    y = tf.stack([example['SPEI_30d'], example['SPEI_1y'], example['SPEI_2y']])
+    return x, tf.cast(y, tf.float64)
 
 # Training
-def train(args, model, ds):
+def train(args, model):
     # Format dataset for training
-    # print(f"b4 transform {ds['train']['tensors'].shape}")
-    ds['train'].set_transform(ds_to_fit_format)
-    # print(f"b4 to_tf_dataset {training_ds[0]['tensors'].shape}")
-    tf_ds = ds['train'].to_tf_dataset(columns='x', label_cols='y', batch_size=args.batch_size, shuffle=True)
-    print("post to_tf_dataset")
+    ds = format_images()
+
+    # Create dataset
+    def generator():
+        for example in ds['train']:
+            yield process_example(example)
+
+    output_signature = (
+        tf.TensorSpec(shape=(256, 256, 3), dtype=tf.float64),  # height, width, channels
+        tf.TensorSpec(shape=(3,), dtype=tf.float64)
+    )
+
+    tf_ds = tf.data.Dataset.from_generator(generator, output_signature=output_signature)
+    tf_ds = tf_ds.shuffle(1000).batch(args.batch_size).repeat().prefetch(tf.data.AUTOTUNE)
 
     for batch_x, batch_y in tf_ds.take(1):
         print(batch_x.shape)
@@ -94,6 +121,9 @@ def train(args, model, ds):
 
     # Perform training
     model.fit(tf_ds, batch_size=args.batch_size, epochs=30)
+
+    # Save weights
+    model.save_weights(args.save_path)
 
 # Hub for doing things w/ model
 def main(args):
@@ -103,7 +133,7 @@ def main(args):
     # model.build(input_shape=(None, img_size, img_size, 3))
 
     if hasattr(args, 'command') and args.command == 'train':
-        train(args, model, load_dataset("./dataset"))
+        train(args, model)
 
     return 0
 
@@ -114,6 +144,7 @@ subparsers = parser.add_subparsers(dest='command')
 # Train subcommand
 train_parser = subparsers.add_parser('train')
 train_parser.add_argument('-b', "--batch-size", type=int, default=32, help="number of datapoints to train on for each iteration")
+train_parser.add_argument('-s', "--save-path", type=str, default="weights.h5", help="save path for weights")
 
 # Collect command-line arguments
 args = parser.parse_args()

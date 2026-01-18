@@ -3,9 +3,6 @@ import numpy as np
 import tensorflow as tf
 from datasets import load_dataset
 
-# Login using e.g. `huggingface-cli login` to access this dataset
-ds = load_dataset("imageomics/sentinel-beetles")
-
 def resize(row):
     img = row['file_path']
 
@@ -31,15 +28,17 @@ def resize(row):
     padded.paste(resized, (x_offset, y_offset))
 
     #convert padded + resized image to numpy array
-    img_array = np.array(padded)
-    print(img_array.shape)
+    img_array = np.array(padded, dtype=np.float64)
+    # print(img_array.shape)
 
     return {'tensors': img_array}
 
+def format_images():
+    ds = load_dataset("imageomics/sentinel-beetles")
+    ds = ds.map(resize, desc="Processing")
+    # ds.save_to_disk("./dataset")
 
-ds = ds.map(resize, desc="Processing")
-
-ds.save_to_disk("./dataset")
+    return ds
 
 
 
