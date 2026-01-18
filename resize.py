@@ -5,11 +5,14 @@ from datasets import load_dataset
 
 # Login using e.g. `huggingface-cli login` to access this dataset
 ds = load_dataset("imageomics/sentinel-beetles")
-ds['train'].add_column('tensors', np.zeros(len(ds['train'])))
 
-def resize(image):
-    
-    img = image
+def resize(row):
+    img = row['file_path']
+
+    if img.mode != "RGB":
+        print("--- forcing RGB ---")
+        img = img.convert("RGB")
+        
     width, height = img.size
 
     new_h = 256
@@ -29,22 +32,14 @@ def resize(image):
 
     #convert padded + resized image to numpy array
     img_array = np.array(padded)
+    print(img_array.shape)
 
-    #convert to tensor
-    tensor = tf.convert_to_tensor(img_array, dtype=tf.float32)
-
-    tensor = tensor / 255.0
-
-    return tensor
+    return {'tensors': img_array}
 
 
-for i in range(len(ds['train']['file_path'])):
-    print(ds['train']['file_path'][i])
-    new_tensor = resize(ds['train']['file_path'][i])
-    ds['train'][i]['tensors'] = new_tensor
-    print(i)
+ds = ds.map(resize, desc="Processing")
 
-ds.save_to_disk("./data/dataset_w_tensors")
+ds.save_to_disk("./dataset")
 
 
 

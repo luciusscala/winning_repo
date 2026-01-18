@@ -1,6 +1,8 @@
 import tensorflow as tf
 from tensorflow.keras import layers, models # type: ignore
 
+import numpy as np
+
 import argparse
 
 from datasets import load_dataset
@@ -72,19 +74,26 @@ class Model(tf.keras.Model):
 
 # Formatting for training dataset
 def ds_to_fit_format(row):
-    x = row['tensors']
-    y = tf.stack([row['SPEI_30d'], row['SPEI_1y'], row['SPEI_2y']])
+    x = np.array(row['tensors'], dtype=np.float32) / 255.0
+    y = np.array([row['SPEI_30d'], row['SPEI_1y'], row['SPEI_2y']], dtype=np.float32)
 
-    return {'x': x, 'y': tf.cast(y, tf.float32)}
+    return {'x': x, 'y': y}
 
 # Training
 def train(args, model, ds):
     # Format dataset for training
-    training_ds = ds['train'].with_transform(ds_to_fit_format)
-    tf_ds = training_ds.to_tf_dataset(columns=['x'], label_cols=['y'], batch_size=args.batch_size, shuffle=True)
+    # print(f"b4 transform {ds['train']['tensors'].shape}")
+    ds['train'].set_transform(ds_to_fit_format)
+    # print(f"b4 to_tf_dataset {training_ds[0]['tensors'].shape}")
+    tf_ds = ds['train'].to_tf_dataset(columns='x', label_cols='y', batch_size=args.batch_size, shuffle=True)
+    print("post to_tf_dataset")
+
+    for batch_x, batch_y in tf_ds.take(1):
+        print(batch_x.shape)
+        print(batch_y.shape)
 
     # Perform training
-    model.fit(tf_ds, epochs=30)
+    model.fit(tf_ds, batch_size=args.batch_size, epochs=30)
 
 # Hub for doing things w/ model
 def main(args):
@@ -94,16 +103,16 @@ def main(args):
     # model.build(input_shape=(None, img_size, img_size, 3))
 
     if hasattr(args, 'command') and args.command == 'train':
-        train(args, model, load_dataset("./data/dataset_w_tensors"))
+        train(args, model, load_dataset("./dataset"))
 
     return 0
 
 # Define command-line arguments
 parser = argparse.ArgumentParser()
-subparsers = parser.add_subparsers()
+subparsers = parser.add_subparsers(dest='command')
 
 # Train subcommand
-train_parser = subparsers.add_parser('train', dest='command')
+train_parser = subparsers.add_parser('train')
 train_parser.add_argument('-b', "--batch-size", type=int, default=32, help="number of datapoints to train on for each iteration")
 
 # Collect command-line arguments
